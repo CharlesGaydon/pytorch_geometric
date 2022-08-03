@@ -131,11 +131,11 @@ class Net(torch.nn.Module):
         super().__init__()
         self.lfa1_module = DilatedResidualBlock(decimation, num_neighboors, 3, 32)
         self.lfa2_module = DilatedResidualBlock(decimation, num_neighboors, 32, 128)
-        self.lfa3_module = DilatedResidualBlock(decimation, num_neighboors, 128, 256)
+        # self.lfa3_module = DilatedResidualBlock(decimation, num_neighboors, 128, 256)
         # self.lfa4_module = DilatedResidualBlock(decimation, num_neighboors, 256, 512)
         # self.pool = GlobalPooling(512, 1024)
-        self.pool = GlobalPooling(256, 512)
-        self.mlp = MLP([512, 256, 10], dropout=0.5)
+        self.pool = GlobalPooling(128, 256)
+        self.mlp = MLP([256, 64, 10], dropout=0.5)
 
     def forward(self, data):
         if not data.x:
@@ -144,10 +144,10 @@ class Net(torch.nn.Module):
         in_0 = (data.x, data.pos, data.batch)
         lfa1_out = self.lfa1_module(*in_0)
         lfa2_out = self.lfa2_module(*lfa1_out)
-        lfa3_out = self.lfa3_module(*lfa2_out)
+        # lfa3_out = self.lfa3_module(*lfa2_out)
         # lfa4_out = self.lfa4_module(*lfa3_out)
         # encoding = self.pool(*lfa4_out)
-        encoding = self.pool(*lfa3_out)
+        encoding = self.pool(*lfa2_out)
         x, _, _ = encoding
         return self.mlp(x).log_softmax(dim=-1)
 
