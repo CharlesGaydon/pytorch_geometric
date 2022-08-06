@@ -3,6 +3,7 @@ import os.path as osp
 import torch
 import torch.nn.functional as F
 from torch_scatter import scatter
+from torch_geometric.nn.pool.glob import global_max_pool
 from torchmetrics.functional import jaccard_index
 from tqdm import tqdm
 
@@ -12,6 +13,17 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MLP, knn_interpolate
 from randlanet_classification import DilatedResidualBlock
 
+class GlobalSAModule(torch.nn.Module):
+    def __init__(self, nn):
+        super().__init__()
+        self.nn = nn
+
+    def forward(self, x, pos, batch):
+        x = self.nn(torch.cat([x, pos], dim=1))
+        x = global_max_pool(x, batch)
+        pos = pos.new_zeros((x.size(0), 3))
+        batch = torch.arange(x.size(0), device=batch.device)
+        return x, pos, batch
 
 category = "Airplane"  # Pass in `None` to train on all categories.
 path = osp.join(osp.dirname(osp.realpath(__file__)), "..", "data", "ShapeNet")
@@ -57,8 +69,9 @@ class Net(torch.nn.Module):
         self.lfa2_module = DilatedResidualBlock(decimation, num_neighboors, 32, 128)
         self.lfa3_module = DilatedResidualBlock(decimation, num_neighboors, 128, 256)
         self.lfa4_module = DilatedResidualBlock(decimation, num_neighboors, 256, 512)
-        self.mlp1 = MLP([512, 512, 512])
-        self.fp4_module = FPModule(1, MLP([512 + 256, 256]))
+        # self.mlp1 = MLP([512, 1024])
+        self.pool = GlobalSAModule(MLP([512+3, 1024]))
+        self.fp4_module = FPModule(1, MLP([1024 + 256, 256]))
         self.fp3_module = FPModule(1, MLP([256 + 128, 128]))
         self.fp2_module = FPModule(1, MLP([128 + 32, 32]))
         self.fp1_module = FPModule(1, MLP([32 + num_features, 8]))
@@ -73,10 +86,9 @@ class Net(torch.nn.Module):
         lfa2_out = self.lfa2_module(*lfa1_out)
         lfa3_out = self.lfa3_module(*lfa2_out)
         lfa4_out = self.lfa4_module(*lfa3_out)
+        pool_out = self.pool(*lfa4_out)
 
-        mlp_out = (self.mlp1(lfa4_out[0]), lfa4_out[1], lfa4_out[2])
-
-        fp4_out = self.fp4_module(*mlp_out, *lfa3_out)
+        fp4_out = self.fp4_module(*pool_out, *lfa3_out)
         fp3_out = self.fp3_module(*fp4_out, *lfa2_out)
         fp2_out = self.fp2_module(*fp3_out, *lfa1_out)
         x, _, _ = self.fp1_module(*fp2_out, *in_0)
